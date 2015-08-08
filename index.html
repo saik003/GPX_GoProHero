@@ -1,0 +1,291 @@
+<html>
+  <head>  
+    <!--jQuery-->
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no"/>
+    <title>Rutas en video Geoposicionadas</title>
+
+     <!--******Nuevo***** libreria para poder generar el perfil de elevacion-->
+    <script src="http://code.highcharts.com/highcharts.js"></script>
+    <script src="http://code.highcharts.com/modules/exporting.js"></script>
+    <script src="http://code.highcharts.com/highcharts-more.js"></script>
+
+    <!-- css esri-->
+    <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/esri/css/esri.css">
+    <!-- css diseño -->
+    <link rel="stylesheet" href="app.css">
+    <!-- API JavaScript de ArcGIS-->
+    <script src="http://js.arcgis.com/3.9/"></script>
+    <!-- lectura de fichero gpx-->
+    <script src="loadgpx.js" type="text/javascript"></script>
+   
+    
+
+  <script type="text/javascript">
+
+    // Si queremos que nuestro video comience en un segundo determinado del video lo indicamos
+    var segundoComienzo=0;
+    var pasada=0;
+    var comenzar=false;
+    //Capa donde visualizamos la posicion actual
+    var PuntosPos ;
+    //Capa para los puntos que no se ven y enlazar con los segundos del video
+    var lgisCapaVerticesGPX;
+    // Capa para mostrar el punto cuando nos estamos moviendo sobre el perfil
+    var lgisCapaChart;
+
+   //Array usado y cargado desde el fichero loadGPX.js con los segundos del video y la relacion de los puntos del gpx
+    var arraySegundos=[];
+
+    //Array usado para sincronizar la elevación
+    var arrayElevacion=[],arrayElevacionSec=[];
+
+    //Array velocidades
+    var arrayVelocidades=[];
+
+    //Punto anterior para cualcular el angulo entre dos puntos
+    var puntoAnterior;
+
+    //Valor del angulo que hay entre cada punto para aplicarselo al icono
+    var valor=0.0;
+
+    /////////// Código para cargar el API HTML5 de youtube
+    // 2. This code loads the IFrame Player API code asynchronously.
+    var tag = document.createElement('script');
+
+    tag.src = "https://www.youtube.com/iframe_api";
+    var firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    // 3. This function creates an <iframe> (and YouTube player)
+    //    after the API code downloads.
+    var player;
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        height: '100%',
+        width: '100%',
+        videoId: '33za2TEE5K4',
+        events: {
+          'onReady': onPlayerReady
+        }
+      });
+    }
+
+    // 4. The API will call this function when the video player is ready.
+    function onPlayerReady(event) {
+      //event.target.playVideo();
+      require(["esri/map",
+      "esri/symbols/SimpleMarkerSymbol",
+      "esri/Color",
+      "esri/graphic",
+      "esri/layers/GraphicsLayer",
+      "esri/symbols/PictureMarkerSymbol"], 
+      function(Map,SimpleMarkerSymbol,Color,Graphic,GraphicsLayer,PictureMarkerSymbol) {
+        
+        if(typeof(Worker) !== "undefined")
+        {
+          if(typeof(w) == "undefined")
+          {
+            w = new Worker("work.js");
+          }
+          w.onmessage = function (event){
+            var tiempo=player.getCurrentTime();
+            document.getElementById("vaporSegundos").value =tiempo;
+            if(tiempo>0){
+              if(pasada==0){
+                punto=arraySegundos[0];
+                pasada=1;
+              }else{
+                tiempo=tiempo | 0;
+                puntoAnterior=punto;
+                punto=arraySegundos[tiempo-segundoComienzo];
+                PuntosPos.clear();
+
+                aux=calculoAngulo(puntoAnterior.x,puntoAnterior.y,punto.x,punto.y);
+                if(aux!=0 && !isNaN(aux)){
+                  valor=aux;
+                  document.getElementById("angulo").value=valor;
+                }
+
+              }
+              //Nuevo ahora con icono personalizado
+              var pictureMarkerSymbol = new PictureMarkerSymbol('images/icoBici.png', 30, 30);
+              pictureMarkerSymbol.angle=valor;
+              var graphic = new Graphic(punto, pictureMarkerSymbol);  
+              PuntosPos.add(graphic);
+
+              /*var sms = new SimpleMarkerSymbol();
+              sms.setColor(new esri.Color([255,0,0,1]))
+              var graphic = new Graphic(punto, sms);  
+              PuntosPos.add(graphic);*/
+              map.centerAt(punto);
+
+              //Agregamos
+              var pos=arrayElevacion[tiempo-segundoComienzo];
+              var chart = $('#chart').highcharts();
+               chart.xAxis[0].removePlotBand('plot-band-1');
+               chart.xAxis[0].addPlotBand({
+                from: arrayElevacionSec[pos],
+                to: arrayElevacionSec[pos+1],
+                color: '#5bff57',
+                id: 'plot-band-1'
+              });
+
+              //Ahora establecemos la velocidad
+              var chart = $('#gaugeVel').highcharts();
+                var point = chart.series[0].points[0];
+                point.update(arrayVelocidades[tiempo-segundoComienzo]);
+
+            }
+          };
+        }
+        else
+        {
+          document.getElementById("vaporSegundos").value="Sorry, your browser does not support Web Workers...";
+        }
+
+        map = new Map("mapMain", {
+          basemap: "topo",
+          center: [-122.45, 37.75], // longitude, latitude
+          zoom: 13
+        });
+
+        PuntosPos = new GraphicsLayer();
+        map.addLayer(PuntosPos);
+
+        lgisCapaVerticesGPX= new GraphicsLayer();
+        map.addLayer(lgisCapaVerticesGPX);
+
+        lgisCapaVerticesGPX.on("click",function(evt){
+          segundo=evt.graphic.attributes.hora;
+          player.seekTo(segundo+parseInt(segundoComienzo));
+        });
+
+        lgisCapaChart= new GraphicsLayer();
+        map.addLayer(lgisCapaChart);
+
+        //Capturamos el evento load para que se carga el GPX al inicio 
+        map.on("load",function(){
+          loadGPX();
+        });
+
+      });
+
+      function calculoAngulo(x0,y0,x1,y1){
+        Pi=4*Math.atan(1);
+        Az=Math.atan((x1 - x0) / (y1 - y0)) * 200 / Pi ;
+        if((y1 - y0) < 0) 
+          Az = Az + 200 
+        if (((y1 - y0) > 0) && ((x1 - x0) < 0))
+          Az = Az + 400 
+        return Az +60;
+      }
+
+
+
+      //Evento del boton reproducir
+      $('#play').click(function(){
+        if (player) {
+            player.playVideo();
+        }
+      });
+
+      //Evento del boton detener
+      $('#detener').click(function(){
+        player.stopVideo();
+      });
+      //Evento del boton pausar
+      $('#pausar').click(function(){
+        player.pauseVideo();
+      });
+      //Evento del boton comenzar en...
+      $('#comenzar').click(function(){
+        var sec=$("#segundos").val()
+        player.seekTo(sec);
+        segundoComienzo=sec;
+        comenzar=true;
+      });
+
+      ////////Evento del boton cargar GPX
+      $('#gpx').click(loadGPX);
+
+      //Funcion que carga el gpx, con la extension modificada a xml
+      function loadGPX(){
+          $.ajax({
+          url: "cicloide_9446_waimk.xml",
+          dataType: "xml",
+          success: function(data) {
+            var parser = new GPXParser(data, map);
+            parser.centerAndZoom(data);
+            parser.addTrackpointsToMap();
+
+          }
+        });
+      }
+
+     
+
+      $("img").click(function() { 
+        var origsrc = $(this).attr('src');
+        var src = '';
+        if (origsrc == 'images/play.png'){
+            src = 'images/pause.png';
+            player.playVideo();
+          }
+        if (origsrc == 'images/pause.png'){
+          src = 'images/play.png';
+          player.pauseVideo();
+        }
+        $(this).attr('src', src);
+
+        });
+       
+
+    }
+
+  </script>
+  </head>
+  <body>
+    <div id="general">
+      <div id="barra">
+        <div id="navegador">
+          <ul>
+            <li><a href="#" id="play">Reproducir</a></li>
+            <li><a href="#" id="comenzar">Comenzar en:</a></li>
+            <li><input value=50 id="segundos"></input></li>
+            <li><a href="#" id="detener">Detener</a></li>
+            <li><a href="#" id="pausar">Pausar</a></li>
+            <li><a href="#" id="vapor">Segundo actual:</a></li>
+            <li><input id="vaporSegundos"></input></li>
+            <li><a href="#" id="gpx">Cargar GPX:</a></li>
+             <li><input id="angulo"></input></li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="izquierda">
+         <div id="player"></div>
+      </div>
+
+      <div id="derecha">
+        <div id="mapMain">
+        </div>
+      </div>
+
+       <div id="divGrafico">
+         <div id="chart"></div>
+         
+      </div>
+      <div id="divVel">
+        <div id="gaugeVel" style="min-width: 310px; max-width: 400px; height: 300px; margin: 0 auto"></div>
+      </div>
+      <div id="botonDesc">
+        <img id="play" src="images/play.png"/>
+        <p>Aplicación que sincroniza un video capturado con una cámara Go PRO con un fichero GPX generado con la aplicación Runtastic, lo que permite relacionar un video con la ruta en la que ha sido capturado. Podemos movernos por el video y nos posiciona automaticamente el punto en el Mapa , y podemos hacer click sobre un punto de la ruta sobre el mapa y el video se posicionará en el segundo más proximo capturado en esa posición.</br></br>Realizado por: <b>Carlos Guerrero López.</b></br> </br><b>Todo el código en <a
+href="https://github.com/saik003/Apps-JavaScript/tree/master/GpxGO">mi GitHub.</a></b></p>
+      </div>
+      
+    </div>
+  </body>
+</html>
