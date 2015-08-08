@@ -23,7 +23,7 @@ Ahora el icono es un pictureMarkerSymbol que modifica su ángulo en base a los v
 Añadido gráfico con el perfil topográfico de la ruta realizada. Este gráfico esta sincronizado con la ruta y el video, si hacemos clic sobre una parte del gráfico automaticamente nos posiciona en esa parte del video y viceversa.
 Añadido gráfico que muestra la velocidad actual de la ruta. 
 ###Ejemplos
-[Ver demostración](http://91.121.152.137/apps/gpxgo/index.html).
+[Ver demostración](http://saik003.github.io/GPX_GoProHero/).
 
 [Aquí](https://github.com/saik003/Apps-JavaScript/tree/master/GPX_GoProHero) el código para descargar.  
 
